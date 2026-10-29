@@ -101,7 +101,7 @@ def mark_notified(series_id: int, series_title: str, language: str):
 # ── Redash ───────────────────────────────────────────────────
 
 def fetch_reuploads() -> list:
-    url = f"{REDASH_BASE_URL}/api/queries/{REDASH_QUERY_ID}/results"
+    url = f"{REDASH_BASE_URL}/api/query_results/{REDASH_RESULT_ID}"
     params = {"api_key": REDASH_API_KEY, "max_age": 0}
     log.info("Fetching re-uploads from Redash...")
     resp = requests.get(url, params=params, timeout=60)
