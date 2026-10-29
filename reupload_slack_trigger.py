@@ -109,17 +109,22 @@ def fetch_reuploads() -> list:
     resp = requests.post(url, headers=headers, json={"max_age": 0}, timeout=120)
     resp.raise_for_status()
     result = resp.json()
-    # Poll until job completes
-    while result.get("job"):
+    # If result returned immediately (cached), use it directly
+    # Otherwise poll the job until complete
+    while "job" in result:
         time.sleep(2)
         job_id = result["job"]["id"]
         job_resp = requests.get(f"{REDASH_BASE_URL}/api/jobs/{job_id}", headers=headers, timeout=30)
-        result = job_resp.json()
-        if result["job"]["status"] in (3, 4):
-            query_result_id = result["job"]["query_result_id"]
+        job_data = job_resp.json()
+        status = job_data["job"]["status"]
+        if status == 3:  # success
+            query_result_id = job_data["job"]["query_result_id"]
             qr_resp = requests.get(f"{REDASH_BASE_URL}/api/query_results/{query_result_id}", headers=headers, timeout=30)
             result = qr_resp.json()
             break
+        elif status == 4:  # failed
+            raise Exception(f"Redash job failed: {job_data}")
+        # status 1/2 = pending/started, keep polling
     rows = result["query_result"]["data"]["rows"]
     log.info(f"Found {len(rows)} re-uploaded videos.")
     new = [r for r in rows if not is_notified(r["series_id"])]
