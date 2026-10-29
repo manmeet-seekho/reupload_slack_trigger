@@ -103,28 +103,33 @@ def mark_notified(series_id: int, series_title: str, language: str):
 def fetch_reuploads() -> list:
     import time
     headers = {"Authorization": f"Key {REDASH_API_KEY}", "Content-Type": "application/json"}
-    # POST to force fresh execution
     url = f"{REDASH_BASE_URL}/api/queries/{REDASH_QUERY_ID}/results"
     log.info("Fetching re-uploads from Redash...")
     resp = requests.post(url, headers=headers, json={"max_age": 0}, timeout=120)
     resp.raise_for_status()
     result = resp.json()
-    # If result returned immediately (cached), use it directly
-    # Otherwise poll the job until complete
-    while "job" in result:
+
+    # Poll job if async, otherwise result is already here
+    max_attempts = 30
+    attempts = 0
+    while "query_result" not in result and attempts < max_attempts:
+        attempts += 1
         time.sleep(2)
-        job_id = result["job"]["id"]
+        job = result.get("job", {})
+        job_id = job.get("id")
+        if not job_id:
+            raise Exception(f"Unexpected Redash response: {result}")
         job_resp = requests.get(f"{REDASH_BASE_URL}/api/jobs/{job_id}", headers=headers, timeout=30)
-        job_data = job_resp.json()
-        status = job_data["job"]["status"]
+        job_data = job_resp.json().get("job", {})
+        status = job_data.get("status")
         if status == 3:  # success
-            query_result_id = job_data["job"]["query_result_id"]
+            query_result_id = job_data["query_result_id"]
             qr_resp = requests.get(f"{REDASH_BASE_URL}/api/query_results/{query_result_id}", headers=headers, timeout=30)
             result = qr_resp.json()
             break
-        elif status == 4:  # failed
+        elif status == 4:
             raise Exception(f"Redash job failed: {job_data}")
-        # status 1/2 = pending/started, keep polling
+
     rows = result["query_result"]["data"]["rows"]
     log.info(f"Found {len(rows)} re-uploaded videos.")
     new = [r for r in rows if not is_notified(r["series_id"])]
