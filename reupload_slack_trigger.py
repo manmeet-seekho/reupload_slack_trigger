@@ -101,12 +101,26 @@ def mark_notified(series_id: int, series_title: str, language: str):
 # ── Redash ───────────────────────────────────────────────────
 
 def fetch_reuploads() -> list:
-    url = f"{REDASH_BASE_URL}/api/query_results/{REDASH_RESULT_ID}"
-    params = {"api_key": REDASH_API_KEY, "max_age": 0}
+    import time
+    headers = {"Authorization": f"Key {REDASH_API_KEY}", "Content-Type": "application/json"}
+    # POST to force fresh execution
+    url = f"{REDASH_BASE_URL}/api/queries/{REDASH_QUERY_ID}/results"
     log.info("Fetching re-uploads from Redash...")
-    resp = requests.get(url, params=params, timeout=60)
+    resp = requests.post(url, headers=headers, json={"max_age": 0}, timeout=120)
     resp.raise_for_status()
-    rows = resp.json()["query_result"]["data"]["rows"]
+    result = resp.json()
+    # Poll until job completes
+    while result.get("job"):
+        time.sleep(2)
+        job_id = result["job"]["id"]
+        job_resp = requests.get(f"{REDASH_BASE_URL}/api/jobs/{job_id}", headers=headers, timeout=30)
+        result = job_resp.json()
+        if result["job"]["status"] in (3, 4):
+            query_result_id = result["job"]["query_result_id"]
+            qr_resp = requests.get(f"{REDASH_BASE_URL}/api/query_results/{query_result_id}", headers=headers, timeout=30)
+            result = qr_resp.json()
+            break
+    rows = result["query_result"]["data"]["rows"]
     log.info(f"Found {len(rows)} re-uploaded videos.")
     new = [r for r in rows if not is_notified(r["series_id"])]
     log.info(f"{len(new)} new re-uploads to notify.")
