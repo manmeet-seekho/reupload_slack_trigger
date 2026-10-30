@@ -205,17 +205,22 @@ def send_slack_notification(row: dict):
         "text": message,
         "mrkdwn": True
     }
-    resp = requests.post(
-        "https://slack.com/api/chat.postMessage",
-        headers=headers,
-        json=payload,
-        timeout=30
-    )
-    data = resp.json()
+    try:
+        resp = requests.post(
+            "https://slack.com/api/chat.postMessage",
+            headers=headers,
+            json=payload,
+            timeout=30
+        )
+        data = resp.json()
+    except Exception as e:
+        log.warning(f"Slack request failed for [{series_id}] {title}: {e} - will retry next run")
+        return False
     if data.get("ok"):
         log.info(f"Slack notified: [{series_id}] {title}")
-    else:
-        log.warning(f"Slack failed: {data.get('error')}")
+        return True
+    log.warning(f"Slack failed for [{series_id}] {title}: {data.get('error')} - will retry next run")
+    return False
 
 
 # ── Main ─────────────────────────────────────────────────────
@@ -233,11 +238,13 @@ def main():
         log.info("No new re-uploads. Exiting.")
         return
 
+    sent = 0
     for row in rows:
-        send_slack_notification(row)
-        mark_notified(row["series_id"], row["series_title"], row["language"])
+        if send_slack_notification(row):
+            mark_notified(row["series_id"], row["series_title"], row["language"])
+            sent += 1
 
-    log.info(f"Done. Notified {len(rows)} re-upload(s).")
+    log.info(f"Done. Notified {sent} of {len(rows)} re-upload(s).")
 
 
 if __name__ == "__main__":
