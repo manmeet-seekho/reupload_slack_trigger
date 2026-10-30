@@ -203,13 +203,23 @@ def format_publish_date(publish_dt_str) -> str:
         return formatted
 
 
+def format_dt(value) -> str:
+    """Readable IST timestamp, e.g. 05 JUN 2026, 05:35 AM IST. Falls back to the raw text."""
+    if not value:
+        return "N/A"
+    try:
+        return datetime.fromisoformat(str(value)).strftime("%d %b %Y, %I:%M %p IST").upper()
+    except Exception:
+        return str(value)
+
+
 # ── Slack ────────────────────────────────────────────────────
 
 def send_slack_notification(row: dict):
     app_name      = APP_NAMES.get(row["language"], row["language"].upper())
     series_id     = row["series_id"]
     title         = row["series_title"]
-    reupload_time = row.get("reupload_time_ist", "N/A")
+    reupload_time = format_dt(row.get("reupload_time_ist"))
     cms_link      = build_cms_link(series_id, title)
     publish_str   = format_publish_date(row.get("proposed_publish_date_ist"))
 
