@@ -45,8 +45,9 @@ IST = timezone(timedelta(hours=5, minutes=30))
 
 # ── App name mapping ─────────────────────────────────────────
 APP_NAMES = {
-    "hi-health": "SEEKHO HEALTH",
-    "hi-jr":     "SEEKHO JUNIOR",
+    "seekho_health":  "SEEKHO HEALTH",
+    "seekho_junior":  "SEEKHO JUNIOR",
+    "seekho_english": "SEEKHO ENGLISH",
 }
 
 # ── Database ─────────────────────────────────────────────────
@@ -177,7 +178,7 @@ def build_cms_link(series_id: int, title: str) -> str:
 
 def format_publish_date(publish_dt_str) -> str:
     if not publish_dt_str:
-        return "Not scheduled"
+        return "Not in data - check CMS"
 
     try:
         publish_dt = datetime.fromisoformat(str(publish_dt_str))
@@ -216,7 +217,7 @@ def format_dt(value) -> str:
 # ── Slack ────────────────────────────────────────────────────
 
 def send_slack_notification(row: dict):
-    app_name      = APP_NAMES.get(row["language"], row["language"].upper())
+    app_name      = APP_NAMES.get(row["app"], str(row["app"]).replace("_", " ").upper())
     series_id     = row["series_id"]
     title         = row["series_title"]
     reupload_time = format_dt(row.get("reupload_time_ist"))
