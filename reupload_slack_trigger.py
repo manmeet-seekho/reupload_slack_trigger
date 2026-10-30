@@ -102,35 +102,38 @@ def mark_notified(series_id: int, series_title: str, language: str):
 
 def fetch_reuploads() -> list:
     import time
-    headers = {"Authorization": f"Key {REDASH_API_KEY}", "Content-Type": "application/json"}
-    url = f"{REDASH_BASE_URL}/api/queries/{REDASH_QUERY_ID}/results"
-    log.info("Fetching re-uploads from Redash...")
-    resp = requests.post(url, headers=headers, json={"max_age": 0}, timeout=120)
+    base = f"{REDASH_BASE_URL}/api"
+    headers = {"Authorization": f"Key {REDASH_API_KEY}"}
+    params = {"api_key": REDASH_API_KEY}
+
+    # Step 1 (best effort): ask Redash to re-run the query so the data is fresh.
+    # If anything goes wrong here we still read the latest saved result below.
+    try:
+        r = requests.post(f"{base}/queries/{REDASH_QUERY_ID}/results",
+                          headers=headers, json={"max_age": 0}, timeout=60)
+        job = r.json().get("job") if r.ok else None
+        if job:
+            for _ in range(30):
+                time.sleep(2)
+                jr = requests.get(f"{base}/jobs/{job['id']}",
+                                  headers=headers, params=params, timeout=30)
+                j = jr.json().get("job", {})
+                if j.get("status") in (3, 4, 5):
+                    log.info(f"Redash refresh finished (job status {j.get('status')}).")
+                    break
+            else:
+                log.warning("Redash refresh still running after 60s; using latest saved result.")
+    except Exception as e:
+        log.warning(f"Redash refresh step skipped: {e}")
+
+    # Step 2: read the latest result. The '.json' at the end is required.
+    resp = requests.get(f"{base}/queries/{REDASH_QUERY_ID}/results.json",
+                        params=params, timeout=60)
     resp.raise_for_status()
-    result = resp.json()
-
-    # Poll job if async, otherwise result is already here
-    max_attempts = 30
-    attempts = 0
-    while "query_result" not in result and attempts < max_attempts:
-        attempts += 1
-        time.sleep(2)
-        job = result.get("job", {})
-        job_id = job.get("id")
-        if not job_id:
-            raise Exception(f"Unexpected Redash response: {result}")
-        job_resp = requests.get(f"{REDASH_BASE_URL}/api/jobs/{job_id}", headers=headers, timeout=30)
-        job_data = job_resp.json().get("job", {})
-        status = job_data.get("status")
-        if status == 3:  # success
-            query_result_id = job_data["query_result_id"]
-            qr_resp = requests.get(f"{REDASH_BASE_URL}/api/query_results/{query_result_id}", headers=headers, timeout=30)
-            result = qr_resp.json()
-            break
-        elif status == 4:
-            raise Exception(f"Redash job failed: {job_data}")
-
-    rows = result["query_result"]["data"]["rows"]
+    body = resp.json()
+    if "query_result" not in body:
+        raise RuntimeError(f"Unexpected Redash response: {str(body)[:300]}")
+    rows = body["query_result"]["data"]["rows"]
     log.info(f"Found {len(rows)} re-uploaded videos.")
     new = [r for r in rows if not is_notified(r["series_id"])]
     log.info(f"{len(new)} new re-uploads to notify.")
