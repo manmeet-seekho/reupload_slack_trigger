@@ -72,6 +72,32 @@ def setup_db():
     log.info("DB ready.")
 
 
+def maybe_reset_notified():
+    """One-time reset. Set env var RESET_TOKEN to a new value (e.g. reset-1) to clear
+    reupload_notifications once. The token is remembered, so leaving it set is harmless."""
+    token = os.environ.get("RESET_TOKEN")
+    if not token:
+        return
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute("CREATE TABLE IF NOT EXISTS reupload_meta (key TEXT PRIMARY KEY, value TEXT);")
+    cur.execute("SELECT value FROM reupload_meta WHERE key = 'reset_token'")
+    row = cur.fetchone()
+    if row and row[0] == token:
+        cur.close()
+        conn.close()
+        return
+    cur.execute("DELETE FROM reupload_notifications")
+    cur.execute("""
+        INSERT INTO reupload_meta (key, value) VALUES ('reset_token', %s)
+        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value;
+    """, (token,))
+    conn.commit()
+    cur.close()
+    conn.close()
+    log.info(f"RESET_TOKEN '{token}' applied: cleared reupload_notifications (one time).")
+
+
 def is_notified(series_id: int) -> bool:
     conn = get_db()
     cur = conn.cursor()
@@ -232,6 +258,7 @@ def main():
     log.info("=" * 60)
 
     setup_db()
+    maybe_reset_notified()
     rows = fetch_reuploads()
 
     if not rows:
